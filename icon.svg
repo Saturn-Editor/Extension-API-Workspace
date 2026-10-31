@@ -1,1 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M8 6 2 12l6 6"/><path d="m16 6 6 6-6 6"/><path d="m14 4-4 16"/></svg>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:affinity="https://www.affinity.studio/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:square;">
+    <path d="M19,0C21.76,0 24,2.24 24,5L24,19C24,21.76 21.76,24 19,24L5,24C2.24,24 0,21.76 0,19L0,5C0,2.24 2.24,0 5,0L19,0Z" style="fill:rgb(253,154,0);"/>
+    <g transform="matrix(0.9,0,0,0.9,1.2,1.2)">
+        <path d="M8,6L2,12L8,18" style="fill:none;fill-rule:nonzero;stroke:black;stroke-width:2px;"/>
+    </g>
+    <g transform="matrix(0.9,0,0,0.9,1.2,1.2)">
+        <path d="M16,6L22,12L16,18" style="fill:none;fill-rule:nonzero;stroke:black;stroke-width:2px;"/>
+    </g>
+    <g transform="matrix(0.9,0,0,0.9,1.2,1.2)">
+        <path d="M14,4L10,20" style="fill:none;fill-rule:nonzero;stroke:black;stroke-width:2px;"/>
+    </g>
+</svg>

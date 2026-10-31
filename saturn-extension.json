@@ -1,8 +1,8 @@
 {
   "id": "apiworkspace",
   "name": "API Workspace",
-  "version": "1.0.0",
-  "description": "Collections of HTTP requests, environments and encrypted secrets, kept as plain files.",
+  "version": "1.0.1",
+  "description": "API workspace integration for Saturn.",
   "badge": "API",
   "saturnApi": "^1.0",
   "main": "extension.js",
