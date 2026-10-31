@@ -1,0 +1,499 @@
+<div class="bar">
+  <div class="row" style="margin-bottom: 8px">
+    <input id="name" class="title grow" placeholder="Untitled request" spellcheck="false" />
+    <span class="muted">Environment</span>
+    <span id="env"></span>
+  </div>
+  <div class="row">
+    <span id="method"></span>
+    <input id="url" class="grow mono" placeholder="https://api.example.com/items or {{baseUrl}}/items" spellcheck="false" />
+    <button id="send" class="primary" title="Send (Cmd/Ctrl+Enter)">Send</button>
+  </div>
+</div>
+<div class="split">
+  <div class="top">
+    <div class="tabs" id="tabs"></div>
+    <div class="pane fill" id="pane"></div>
+  </div>
+  <div class="bottom" id="response"></div>
+</div>
+<script>
+  const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+  const TABS = [
+    { id: 'query', label: 'Params' },
+    { id: 'headers', label: 'Headers' },
+    { id: 'auth', label: 'Auth' },
+    { id: 'body', label: 'Body' },
+    { id: 'scripts', label: 'Scripts' },
+  ];
+
+  function fix(d) {
+    const doc = d && typeof d === 'object' ? clone(d) : {};
+    doc.name = doc.name || '';
+    doc.method = METHODS.includes(doc.method) ? doc.method : 'GET';
+    doc.url = doc.url || '';
+    doc.query = Array.isArray(doc.query) ? doc.query : [];
+    doc.headers = Array.isArray(doc.headers) ? doc.headers : [];
+    doc.auth = doc.auth && doc.auth.type ? doc.auth : { type: 'none' };
+    doc.body = doc.body && doc.body.type ? doc.body : { type: 'none' };
+    if (doc.body.type === 'multipart' && !Array.isArray(doc.body.multipart)) doc.body.multipart = [];
+    if (doc.body.type === 'form' && !Array.isArray(doc.body.form)) doc.body.form = [];
+    return doc;
+  }
+
+  let tab = 'query';
+  let respTab = 'body';
+  let sending = DATA.sending;
+  let response = DATA.response;
+  let envs = { environments: DATA.environments, active: DATA.active };
+  let history = DATA.history || [];
+  let copiedTimer = null;
+
+  const $ = id => document.getElementById(id);
+  const editor = createEditor(fix(DATA.doc), renderAll);
+
+  const methodPicker = picker(() => METHODS.map(m => ({ value: m, label: m })), editor.doc.method, m => {
+    editor.edit(d => { d.method = m; }, true);
+    methodPicker.set(m);
+    renderPane();
+  }, 'method');
+  $('method').replaceWith(methodPicker);
+  const envPicker = picker(envOptions, envs.active, id => {
+    if (id === '__new') saturn.postMessage({ type: 'newEnvironment' });
+    else if (id === '__edit') saturn.postMessage({ type: 'editEnvironment' });
+    else {
+      envs.active = id;
+      envPicker.set(id);
+      saturn.postMessage({ type: 'setEnvironment', id });
+    }
+  });
+  $('env').replaceWith(envPicker);
+
+  function envOptions() {
+    const list = envs.environments.map(env => ({ value: env.id, label: env.name }));
+    return [...list, ...(list.length ? ['-', { value: '__edit', label: 'Edit Environment' }] : []), { value: '__new', label: 'New Environment…' }];
+  }
+  $('name').addEventListener('input', e => editor.edit(d => { d.name = e.target.value; }));
+  $('url').addEventListener('input', e => editor.edit(d => { d.url = e.target.value; }));
+  $('send').addEventListener('click', () => (sending ? saturn.postMessage({ type: 'cancel' }) : send()));
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      send();
+    }
+  });
+
+  function send() {
+    editor.flush();
+    saturn.postMessage({ type: 'send', doc: clone(editor.doc) });
+  }
+
+  function structure(key, change, focusNew) {
+    editor.edit(d => change(key === 'form' ? d.body.form : key === 'multipart' ? d.body.multipart : d[key]), true);
+    renderTabs();
+    renderPane();
+    if (focusNew) focusLastRow($('pane'));
+  }
+
+  function renderAll() {
+    const d = editor.doc;
+    $('name').value = d.name;
+    methodPicker.set(d.method);
+    $('url').value = d.url;
+    renderEnv();
+    renderTabs();
+    renderPane();
+    renderSend();
+  }
+
+  function renderEnv() {
+    envPicker.set(envs.active || (envs.environments[0] && envs.environments[0].id) || '');
+  }
+
+
+  function count(id) {
+    const d = editor.doc;
+    if (id === 'query' || id === 'headers') return d[id].filter(r => r.enabled !== false && r.name).length;
+    if (id === 'auth') return d.auth.type === 'none' ? 0 : d.auth.type;
+    if (id === 'body') return d.body.type === 'none' ? 0 : d.body.type;
+    if (id === 'scripts') return ['before', 'after'].filter(k => d.scripts && (d.scripts[k] || '').trim()).length;
+    return 0;
+  }
+
+  function renderTabs() {
+    $('tabs').replaceChildren(
+      ...TABS.map(t => {
+        const n = count(t.id);
+        return el('button', { className: `tab${tab === t.id ? ' active' : ''}`, onclick: () => { tab = t.id; renderTabs(); renderPane(); } },
+          t.label, n ? el('span', { className: 'count' }, n) : null);
+      }),
+    );
+  }
+
+  function renderPane() {
+    const pane = $('pane');
+    const d = editor.doc;
+    pane.replaceChildren();
+    if (tab === 'query' || tab === 'headers') {
+      pane.append(rowsTable(d[tab], {
+        onEdit: change => editor.edit(doc => change(doc[tab])),
+        onStructure: (change, focusNew) => structure(tab, change, focusNew),
+        namePlaceholder: tab === 'query' ? 'Parameter' : 'Header',
+      }));
+      pane.append(el('p', { className: 'muted' }, 'Use {{name}} to insert a variable from the current environment.'));
+      return;
+    }
+    if (tab === 'auth') {
+      const type = picker(() => [{ value: 'none', label: 'No auth' }, { value: 'bearer', label: 'Bearer token' }, { value: 'basic', label: 'Basic' }], d.auth.type, t => {
+        editor.edit(doc => {
+          doc.auth = t === 'bearer' ? { type: t, token: '' } : t === 'basic' ? { type: t, username: '', password: '' } : { type: 'none' };
+        }, true);
+        renderTabs();
+        renderPane();
+      });
+      pane.append(el('div', { className: 'row', style: 'margin-bottom: 10px' }, type));
+      const field = (label, key, kind) =>
+        el('div', { className: 'row', style: 'margin-bottom: 6px' },
+          el('span', { style: 'width: 90px' }, label),
+          el('input', {
+            className: 'grow mono',
+            type: kind || 'text',
+            value: d.auth[key] || '',
+            spellcheck: 'false',
+            oninput: e => editor.edit(doc => { doc.auth[key] = e.target.value; }),
+          }));
+      if (d.auth.type === 'bearer') pane.append(field('Token', 'token'));
+      if (d.auth.type === 'basic') pane.append(field('Username', 'username'), field('Password', 'password', 'password'));
+      if (d.auth.type !== 'none') {
+        pane.append(el('p', { className: 'muted' },
+          'Values are saved in the request file. Put real tokens in a secret, for example {{token}}, and store it in ',
+          el('a', { href: '#', onclick: e => { e.preventDefault(); saturn.postMessage({ type: 'openSecrets' }); } }, 'Secrets'),
+          '.'));
+      }
+      return;
+    }
+    if (tab === 'scripts') {
+      renderScripts(pane);
+      return;
+    }
+    const types = [['none', 'None'], ['json', 'JSON'], ['text', 'Text'], ['form', 'Form'], ['multipart', 'Multipart']];
+    pane.append(el('div', { className: 'row', style: 'margin-bottom: 8px' },
+      ...types.map(([value, label]) =>
+        el('label', { className: 'row', style: 'gap: 4px; margin-right: 10px' },
+          el('input', {
+            type: 'radio',
+            name: 'bodyType',
+            checked: d.body.type === value,
+            onchange: () => {
+              editor.edit(doc => {
+                const text = doc.body.text || '';
+                const fields = doc.body.form || (doc.body.multipart || []).filter(r => r.type !== 'file').map(({ name, value, enabled }) => ({ name, value, enabled }));
+                doc.body = value === 'form'
+                  ? { type: value, form: fields }
+                  : value === 'multipart'
+                    ? { type: value, multipart: doc.body.multipart || fields.map(r => ({ ...r, type: 'text' })) }
+                    : value === 'none' ? { type: value } : { type: value, text };
+              }, true);
+              renderTabs();
+              renderPane();
+            },
+          }), label)),
+      el('span', { className: 'grow' }),
+      d.body.type === 'json' ? el('button', { className: 'ghost', onclick: formatJson }, 'Format') : null,
+    ));
+    if (d.method === 'GET' || d.method === 'HEAD') pane.append(el('p', { className: 'warning' }, `${d.method} requests are sent without a body.`));
+    if (d.body.type === 'json' || d.body.type === 'text') {
+      pane.append(el('textarea', {
+        value: d.body.text || '',
+        spellcheck: 'false',
+        placeholder: d.body.type === 'json' ? '{\n  "key": "{{value}}"\n}' : '',
+        oninput: e => editor.edit(doc => { doc.body.text = e.target.value; }),
+        onkeydown: e => {
+          if (e.key !== 'Tab') return;
+          e.preventDefault();
+          const t = e.target;
+          t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end');
+          editor.edit(doc => { doc.body.text = t.value; });
+        },
+      }));
+    } else if (d.body.type === 'form') {
+      pane.append(rowsTable(d.body.form, {
+        onEdit: change => editor.edit(doc => change(doc.body.form)),
+        onStructure: (change, focusNew) => structure('form', change, focusNew),
+        namePlaceholder: 'Field',
+      }));
+    } else if (d.body.type === 'multipart') {
+      renderMultipart(pane, d.body.multipart);
+    }
+  }
+
+  function renderMultipart(pane, list) {
+    const body = el('tbody');
+    list.forEach((row, i) => {
+      const isFile = row.type === 'file';
+      const kind = picker(() => [{ value: 'text', label: 'Text' }, { value: 'file', label: 'File' }], isFile ? 'file' : 'text', v => {
+        if (v !== row.type) structure('multipart', r => { r[i].type = v; r[i].value = ''; });
+      });
+      body.append(el('tr', { className: row.enabled === false ? 'off' : '' },
+        el('td', { className: 'check' }, el('input', {
+          type: 'checkbox',
+          checked: row.enabled !== false,
+          title: 'Include',
+          onchange: e => structure('multipart', r => { r[i].enabled = e.target.checked; }),
+        })),
+        el('td', { style: 'width: 30%' }, el('input', {
+          type: 'text',
+          value: row.name,
+          placeholder: 'Field',
+          spellcheck: 'false',
+          oninput: e => editor.edit(doc => { doc.body.multipart[i].name = e.target.value; }),
+        })),
+        el('td', { style: 'width: 70px' }, kind),
+        el('td', {}, isFile
+          ? el('div', { className: 'row' },
+              el('input', {
+                type: 'text',
+                className: 'grow mono',
+                value: row.value,
+                placeholder: 'No file chosen',
+                spellcheck: 'false',
+                oninput: e => editor.edit(doc => { doc.body.multipart[i].value = e.target.value; }),
+              }),
+              el('button', { onclick: () => saturn.postMessage({ type: 'chooseFile', index: i }) }, 'Choose…'))
+          : el('input', {
+              type: 'text',
+              value: row.value,
+              placeholder: 'Value',
+              spellcheck: 'false',
+              oninput: e => editor.edit(doc => { doc.body.multipart[i].value = e.target.value; }),
+            })),
+        el('td', { className: 'del' }, el('button', { className: 'ghost', title: 'Remove', onclick: () => structure('multipart', r => { r.splice(i, 1); }) }, '×')),
+      ));
+    });
+    pane.append(el('div', {},
+      el('table', { className: 'grid' }, body),
+      el('button', { className: 'ghost', onclick: () => structure('multipart', r => { r.push({ name: '', value: '', enabled: true, type: 'text' }); }, true) }, '+ Add')));
+    pane.append(el('p', { className: 'muted' }, 'File paths are relative to the workspace folder, so they keep working for everyone who clones it.'));
+  }
+
+  function renderScripts(pane) {
+    const d = editor.doc;
+    if (!DATA.scriptsAvailable) {
+      pane.append(el('div', { className: 'note warning' }, "Scripts won't run in this version of Saturn, because it has no script sandbox. You can still edit them."));
+    }
+    const box = (key, title, hint) => {
+      pane.append(el('div', { className: 'section', style: 'margin-top: 4px' }, title));
+      pane.append(el('p', { className: 'muted', style: 'margin: 0 0 6px' }, hint));
+      pane.append(el('textarea', {
+        value: (d.scripts && d.scripts[key]) || '',
+        spellcheck: 'false',
+        style: 'min-height: 110px; flex: 1 1 110px',
+        oninput: e => editor.edit(doc => {
+          doc.scripts = doc.scripts || { before: '', after: '' };
+          doc.scripts[key] = e.target.value;
+        }),
+        onkeydown: e => {
+          if (e.key !== 'Tab') return;
+          e.preventDefault();
+          const t = e.target;
+          t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end');
+          editor.edit(doc => {
+            doc.scripts = doc.scripts || { before: '', after: '' };
+            doc.scripts[key] = t.value;
+          });
+        },
+      }));
+    };
+    box('before', 'Before send', 'Change the request or set variables: api.request.setHeader("X-Id", "1"), api.variables.set("id", "1").');
+    box('after', 'After response', 'Check the response or save values: api.test("ok", () => api.expect(api.response.status).to.equal(200)).');
+    pane.append(el('p', { className: 'muted' },
+      'Scripts run in a sandbox with no network or file access, and stop after 5 seconds. They can\'t read secret values or change which server a request goes to. Postman (pm.*) and Bruno (bru, req, res) scripts also work for common calls.'));
+  }
+
+  function formatJson() {
+    try {
+      const text = JSON.stringify(JSON.parse(editor.doc.body.text || ''), null, 2);
+      editor.edit(doc => { doc.body.text = text; }, true);
+      renderPane();
+    } catch (error) {
+      renderPane();
+      $('pane').append(el('p', { className: 'error' }, `Not valid JSON: ${error.message}`));
+    }
+  }
+
+  function renderSend() {
+    $('send').textContent = sending ? 'Cancel' : 'Send';
+    $('send').className = sending ? '' : 'primary';
+    renderResponse();
+  }
+
+  function respTabButton(id, label, extra) {
+    return el('button', { className: `tab${respTab === id ? ' active' : ''}`, onclick: () => { respTab = id; renderResponse(); } }, label, extra);
+  }
+
+  function renderResponse() {
+    const box = $('response');
+    box.replaceChildren();
+    if (sending) {
+      box.append(el('div', { className: 'empty' }, 'Sending…'));
+      return;
+    }
+    const r = response;
+    const notes = (r && r.scripts) || { tests: [], logs: [], errors: [] };
+    const testCount = notes.tests.length;
+    const failed = notes.tests.filter(t => !t.ok).length;
+    if (!r && respTab !== 'history') respTab = history.length ? 'history' : 'body';
+    if (r && !r.ok && (respTab === 'body' || respTab === 'headers')) respTab = 'body';
+
+    const bar = el('div', { className: 'row bar', style: 'padding: 6px 14px' });
+    if (r && r.ok) {
+      bar.append(
+        el('span', { className: `status ${r.status < 400 ? 'good' : 'bad'}` }, `${r.status} ${r.statusText || ''}`.trim()),
+        el('span', { className: 'muted' }, `${r.time} ms`),
+        el('span', { className: 'muted' }, formatSize(r.size)));
+    } else if (r) {
+      bar.append(el('span', { className: 'status bad' }, 'Request failed'));
+    } else {
+      bar.append(el('span', { className: 'muted' }, 'Not sent yet'));
+    }
+    bar.append(el('span', { className: 'grow' }));
+    if (r) bar.append(respTabButton('body', r.ok ? 'Body' : 'Error'));
+    if (r && r.ok) bar.append(respTabButton('headers', 'Headers', el('span', { className: 'count' }, r.headers.length)));
+    if (r && (testCount || notes.logs.length || notes.errors.length)) {
+      bar.append(respTabButton('tests', 'Tests', el('span', { className: `count${failed || notes.errors.length ? ' error' : ''}` }, testCount ? `${testCount - failed}/${testCount}` : '!')));
+    }
+    bar.append(respTabButton('history', 'History', history.length ? el('span', { className: 'count' }, history.length) : null));
+    if (r && r.ok) {
+      const copy = el('button', { className: 'ghost', onclick: () => copyBody(copy) }, 'Copy');
+      bar.append(copy, el('button', { className: 'ghost', onclick: () => saturn.postMessage({ type: 'saveResponse' }) }, 'Save…'));
+    }
+    bar.append(el('button', { className: 'ghost', title: 'Copy the request as a curl command', onclick: () => saturn.postMessage({ type: 'copyCurl' }) }, 'curl'));
+    box.append(bar);
+
+    const pane = el('div', { className: 'pane grow' });
+    box.append(pane);
+    if (respTab === 'history') {
+      renderHistory(pane);
+      return;
+    }
+    if (!r) {
+      pane.append(el('div', { className: 'empty' }, 'Send the request to see the response here.'));
+      return;
+    }
+    if (notes.errors.length && respTab !== 'tests') {
+      pane.append(el('div', { className: 'note error' }, ...notes.errors.map(e => el('div', {}, e))));
+    }
+    if (respTab === 'tests') {
+      renderTests(pane, notes);
+      return;
+    }
+    if (!r.ok) {
+      pane.append(el('p', { className: 'error' }, r.error));
+      return;
+    }
+    if (r.missing && r.missing.length) {
+      pane.append(el('div', { className: 'note warning' }, `Not set in this environment: ${r.missing.map(n => `{{${n}}}`).join(', ')}`));
+    }
+    if (respTab === 'headers') {
+      pane.append(el('table', { className: 'grid mono' },
+        el('tbody', {}, ...r.headers.map(([name, value]) =>
+          el('tr', {}, el('td', { style: 'width: 35%; color: var(--saturn-muted)' }, name), el('td', {}, value))))));
+    } else if (r.body.kind === 'image') {
+      pane.append(el('img', { src: r.body.dataUrl, style: 'max-width: 100%' }));
+    } else if (r.body.kind === 'binary') {
+      pane.append(el('p', { className: 'muted' }, `Binary response (${r.contentType || 'unknown type'}). Use Save… to keep it.`));
+    } else {
+      if (r.body.cut) pane.append(el('div', { className: 'note muted' }, 'Only the first 2 MB is shown. Use Save… for the full response.'));
+      pane.append(el('pre', { className: 'body' }, r.body.text || el('span', { className: 'muted' }, 'Empty body')));
+    }
+  }
+
+  function renderTests(pane, notes) {
+    for (const e of notes.errors) pane.append(el('div', { className: 'note error' }, e));
+    if (notes.tests.length) {
+      pane.append(el('table', { className: 'grid' }, el('tbody', {}, ...notes.tests.map(t =>
+        el('tr', {},
+          el('td', { style: 'width: 60px' }, el('span', { className: `status ${t.ok ? 'good' : 'bad'}` }, t.ok ? 'Passed' : 'Failed')),
+          el('td', {}, t.name, t.error ? el('div', { className: 'muted mono' }, t.error) : null))))));
+    } else {
+      pane.append(el('p', { className: 'muted' }, 'No tests ran.'));
+    }
+    if (notes.logs.length) {
+      pane.append(el('div', { className: 'section' }, 'Log'));
+      pane.append(el('pre', { className: 'body' }, notes.logs.join('\n')));
+    }
+    pane.append(el('p', {}, el('button', { className: 'ghost', onclick: () => saturn.postMessage({ type: 'clearScriptVariables' }) }, 'Clear Script Variables')));
+  }
+
+  function renderHistory(pane) {
+    if (!history.length) {
+      pane.append(el('div', { className: 'empty' }, 'Requests you send are listed here. History stays on this computer.'));
+      return;
+    }
+    pane.append(el('table', { className: 'grid' }, el('tbody', {}, ...history.map(h =>
+      el('tr', {},
+        el('td', { style: 'width: 140px', className: 'muted' }, new Date(h.at).toLocaleString()),
+        el('td', { style: 'width: 90px' }, h.error
+          ? el('span', { className: 'status bad' }, 'Failed')
+          : el('span', { className: `status ${h.status < 400 ? 'good' : 'bad'}` }, String(h.status))),
+        el('td', { className: 'mono' }, `${h.method} ${h.url}`, h.error ? el('div', { className: 'muted' }, h.error) : null),
+        el('td', { style: 'width: 70px', className: 'muted' }, `${h.time} ms`),
+        el('td', { style: 'width: 60px', className: 'muted' }, h.tests || ''))))));
+  }
+
+  async function copyBody(button) {
+    const r = response;
+    const text = respTab === 'headers' ? r.headers.map(([n, v]) => `${n}: ${v}`).join('\n') : r.body.text || '';
+    await saturn.clipboard.writeText(text);
+    flash(button, 'Copied');
+  }
+
+  function flash(button, text) {
+    const old = button.textContent;
+    button.textContent = text;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { button.textContent = old; }, 1200);
+  }
+
+  saturn.onMessage(async message => {
+    switch (message.type) {
+      case 'undo': editor.undo(); break;
+      case 'redo': editor.redo(); break;
+      case 'reload':
+        readReload(message.text, value => {
+          editor.replace(fix(value));
+          saturn.postMessage({ type: 'reloaded', doc: clone(editor.doc) });
+        });
+        break;
+      case 'environments':
+        envs = { environments: message.environments, active: message.active };
+        renderEnv();
+        break;
+      case 'sending':
+        sending = true;
+        renderSend();
+        break;
+      case 'response':
+        sending = false;
+        response = message.response;
+        if (message.history) history = message.history;
+        if (respTab === 'history') respTab = 'body';
+        if (response && response.scripts && (response.scripts.errors.length || response.scripts.tests.some(t => !t.ok))) respTab = 'tests';
+        renderSend();
+        break;
+      case 'fileChosen':
+        structure('multipart', r => { if (r[message.index]) r[message.index].value = message.value; });
+        break;
+      case 'setName':
+        editor.edit(d => { d.name = message.name; }, true);
+        $('name').value = message.name;
+        break;
+      case 'curl':
+        await saturn.clipboard.writeText(message.text);
+        break;
+    }
+  });
+
+  renderAll();
+  if (DATA.invalid) showInvalid(DATA.invalid);
+</script>

@@ -1,0 +1,153 @@
+{
+  "id": "apiworkspace",
+  "name": "API Workspace",
+  "version": "1.0.0",
+  "description": "Collections of HTTP requests, environments and encrypted secrets, kept as plain files.",
+  "badge": "API",
+  "saturnApi": "^1.0",
+  "main": "extension.js",
+  "contributes": {
+    "projectTypes": [
+      {
+        "id": "apiworkspace",
+        "name": "API Workspace",
+        "description": "Collections of HTTP requests, kept as plain files.",
+        "icon": "icon.svg",
+        "marker": "api-workspace.json",
+        "keep": [
+          "terminal"
+        ],
+        "encryption": true
+      }
+    ],
+    "documents": [
+      {
+        "id": "apiworkspace.request",
+        "label": "API request",
+        "extensions": [
+          ".apireq"
+        ]
+      },
+      {
+        "id": "apiworkspace.environment",
+        "label": "API environment",
+        "extensions": [
+          ".apienv"
+        ]
+      },
+      {
+        "id": "apiworkspace.secrets",
+        "label": "API secrets",
+        "extensions": [
+          ".apisecret"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "id": "apiworkspace.newRequest",
+        "title": "API Workspace: New Request\u2026",
+        "when": {
+          "projectType": "apiworkspace"
+        }
+      },
+      {
+        "id": "apiworkspace.newFolder",
+        "title": "API Workspace: New Folder\u2026",
+        "when": {
+          "projectType": "apiworkspace"
+        }
+      },
+      {
+        "id": "apiworkspace.newEnvironment",
+        "title": "API Workspace: New Environment\u2026",
+        "when": {
+          "projectType": "apiworkspace"
+        }
+      },
+      {
+        "id": "apiworkspace.import",
+        "title": "API Workspace: Import Postman, Bruno or OpenAPI\u2026",
+        "when": {
+          "projectType": "apiworkspace"
+        }
+      },
+      {
+        "id": "apiworkspace.switchEnvironment",
+        "title": "API Workspace: Switch Environment\u2026",
+        "when": {
+          "projectType": "apiworkspace"
+        }
+      },
+      {
+        "id": "apiworkspace.openSecrets",
+        "title": "API Workspace: Open Secrets",
+        "when": {
+          "projectType": "apiworkspace"
+        }
+      },
+      {
+        "id": "apiworkspace.clearScriptVariables",
+        "title": "API Workspace: Clear Script Variables",
+        "when": {
+          "projectType": "apiworkspace"
+        }
+      },
+      {
+        "id": "apiworkspace.send",
+        "title": "API Workspace: Send Request",
+        "when": {
+          "document": "apiworkspace.request"
+        }
+      },
+      {
+        "id": "apiworkspace.copyCurl",
+        "title": "API Workspace: Copy as curl",
+        "when": {
+          "document": "apiworkspace.request"
+        }
+      }
+    ],
+    "settings": [
+      {
+        "id": "timeout",
+        "label": "Request timeout",
+        "type": "select",
+        "default": "30",
+        "options": [
+          {
+            "value": "10",
+            "label": "10 seconds"
+          },
+          {
+            "value": "30",
+            "label": "30 seconds"
+          },
+          {
+            "value": "60",
+            "label": "1 minute"
+          },
+          {
+            "value": "300",
+            "label": "5 minutes"
+          }
+        ]
+      },
+      {
+        "id": "followRedirects",
+        "label": "Follow redirects",
+        "type": "checkbox",
+        "default": true
+      }
+    ],
+    "panels": [
+      {
+        "id": "apiworkspace.requests",
+        "title": "API Requests",
+        "dock": "left",
+        "kind": "tree",
+        "icon": "icon.svg"
+      }
+    ]
+  }
+}

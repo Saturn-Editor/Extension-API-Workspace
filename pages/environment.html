@@ -1,0 +1,96 @@
+<div class="bar">
+  <div class="row">
+    <input id="name" class="title grow" placeholder="Untitled environment" spellcheck="false" />
+    <span class="chip mono" id="id"></span>
+  </div>
+</div>
+<div class="pane grow" id="pane"></div>
+<script>
+  function fix(d) {
+    const doc = d && typeof d === 'object' ? clone(d) : {};
+    doc.name = doc.name || '';
+    doc.variables = Array.isArray(doc.variables) ? doc.variables : [];
+    doc.secrets = Array.isArray(doc.secrets) ? doc.secrets : [];
+    return doc;
+  }
+
+  const $ = id => document.getElementById(id);
+  const editor = createEditor(fix(DATA.doc), render);
+
+  $('id').textContent = DATA.id;
+  $('id').title = 'Requests use this environment when it is picked in their Environment menu.';
+  $('name').addEventListener('input', e => editor.edit(d => { d.name = e.target.value; }));
+
+  function render() {
+    const d = editor.doc;
+    $('name').value = d.name;
+    const pane = $('pane');
+    pane.replaceChildren();
+
+    pane.append(el('div', { className: 'section' }, 'Variables'));
+    pane.append(el('p', { className: 'muted' }, 'Use them in requests as {{name}}. These are saved as plain text and shared through git.'));
+    pane.append(rowsTable(d.variables, {
+      toggle: false,
+      namePlaceholder: 'Variable',
+      onEdit: change => editor.edit(doc => change(doc.variables)),
+      onStructure: (change, focusNew) => {
+        editor.edit(doc => change(doc.variables), true);
+        render();
+        if (focusNew) focusLastRow(pane.querySelector('.vars'));
+      },
+    }));
+    pane.lastChild.classList.add('vars');
+
+    pane.append(el('div', { className: 'section' }, 'Secrets'));
+    pane.append(el('p', { className: 'muted' },
+      'Only the names are saved here. Their values are encrypted in secrets.apisecret with the workspace password.'));
+    const list = el('div', { className: 'secrets' });
+    const body = el('tbody');
+    d.secrets.forEach((name, i) => {
+      body.append(el('tr', {},
+        el('td', {}, el('input', {
+          type: 'text',
+          value: name,
+          placeholder: 'Secret name',
+          spellcheck: 'false',
+          oninput: e => editor.edit(doc => { doc.secrets[i] = e.target.value; }),
+        })),
+        el('td', { className: 'del' }, el('button', {
+          className: 'ghost',
+          title: 'Remove',
+          onclick: () => { editor.edit(doc => { doc.secrets.splice(i, 1); }, true); render(); },
+        }, '×'))));
+    });
+    list.append(el('table', { className: 'grid' }, body));
+    list.append(el('div', { className: 'row' },
+      el('button', {
+        className: 'ghost',
+        onclick: () => {
+          editor.edit(doc => { doc.secrets.push(''); }, true);
+          render();
+          focusLastRow(pane.querySelector('.secrets'));
+        },
+      }, '+ Add'),
+      el('span', { className: 'grow' }),
+      el('button', { onclick: () => { editor.flush(); saturn.postMessage({ type: 'openSecrets' }); } }, 'Edit Secret Values…')));
+    pane.append(list);
+
+    const names = [...d.variables.map(v => v.name), ...d.secrets].filter(Boolean);
+    const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+    if (dupes.length) pane.append(el('p', { className: 'warning' }, `Used more than once: ${[...new Set(dupes)].join(', ')}. Secrets win over variables.`));
+  }
+
+  saturn.onMessage(message => {
+    if (message.type === 'undo') editor.undo();
+    else if (message.type === 'redo') editor.redo();
+    else if (message.type === 'reload') {
+      readReload(message.text, value => {
+        editor.replace(fix(value));
+        saturn.postMessage({ type: 'reloaded', doc: clone(editor.doc) });
+      });
+    }
+  });
+
+  render();
+  if (DATA.invalid) showInvalid(DATA.invalid);
+</script>
